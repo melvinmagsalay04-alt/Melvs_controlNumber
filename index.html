@@ -1829,15 +1829,6 @@
         // ─── CLAIMING STATUS ──────────────────────────────────────────────────────────
         function getClaimingStatus() {
           if (!serverTimeSynced) return "blocked";
-          if (!scheduleSettings.claimingEnabled) return "blocked";
-          if (isGenerationClosed(getServerTime())) return "weekend";
-          const n = toPHT(getServerTime());
-          const c = n.getUTCHours() * 60 + n.getUTCMinutes();
-          if (
-            c < toMin(scheduleSettings.claimStart) ||
-            c >= toMin(scheduleSettings.claimEnd)
-          )
-            return "closed";
           return "open";
         }
         function isClaimingOpen() {
@@ -1881,6 +1872,7 @@
             scheduleSettings = Object.assign({}, scheduleSettings, s.val());
           applyBen2Visibility(scheduleSettings.ben2Enabled !== false);
           scheduleSettings.claimRestricted = true;
+          scheduleSettings.claimingEnabled = true;
           updateScheduleBar();
           updateStatusBanner();
           renderCard();
@@ -2818,7 +2810,7 @@
 
           // Device limit keyed to targetStr (the ticket's date), not todayStr.
           // This prevents a new day's counter from allowing a second ticket for the same target date.
-          const deviceLimit = scheduleSettings.deviceLimit ?? 1;
+          const deviceLimit = 0; // 0 = unlimited
           if (deviceLimit > 0 && !editingTicketId) {
             const limitKey = "pq_gen_count_" + targetStr;
             const genCount = parseInt(localStorage.getItem(limitKey) || "0");
@@ -3180,11 +3172,13 @@ function bookDate(fallback) {
 
 // Target day → that week's Friday (weekdays only)
 function getWeekDates() {
-  const first = getTargetDate(getServerTime());
-  const dow = toPHT(first).getUTCDay();
   const out = [];
-  if (dow < 1 || dow > 5) return out;
-  for (let i = 0; i <= 5 - dow; i++) out.push(toDateStr(new Date(first.getTime() + i * 86400000)));
+  let d = getTargetDate(getServerTime());
+  while (out.length < 7) {
+    const dow = toPHT(d).getUTCDay();
+    if (dow >= 1 && dow <= 5) out.push(toDateStr(d));
+    d = new Date(d.getTime() + 86400000);
+  }
   return out;
 }
 
@@ -3843,7 +3837,7 @@ function refreshDateSelect() {
 let selectedDate = null;
 let rangeRefs = [], rangeKey = null;
 
-function dateSelectOn() { return scheduleSettings.dateSelectEnabled === true; }
+function dateSelectOn() { return true; }
 
 function bookDate(fallback) {
   if (dateSelectOn() && selectedDate) return selectedDate;
