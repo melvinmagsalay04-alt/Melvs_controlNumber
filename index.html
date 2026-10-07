@@ -676,31 +676,26 @@
           >
             IDs will be verified in person by staff upon arrival.
           </div>
-          <div class="field">
-            <div class="field" id="field-appt-date" style="display: none">
-              <label>Appointment Date <span class="opt">(choose a day this week)</span></label>
-              <div class="date-chip-row" id="appt-date-chips"></div>
+            <div class="field">
+              <label data-i18n="labelPrefTime">Preferred Time</label>
+              <div class="time-row">
+                <button class="time-btn" id="btn-am" onclick="selectTime('AM')">
+                  AM<span class="slot-tag" id="tag-am"></span><span class="window-tag" id="win-am"></span>
+                </button>
+                <button class="time-btn" id="btn-pm" onclick="selectTime('PM')">
+                  PM<span class="slot-tag" id="tag-pm"></span><span class="window-tag" id="win-pm"></span>
+                </button>
+              </div>
             </div>
-            <label data-i18n="labelPrefTime">Preferred Time</label>
-            <div class="time-row">
-              <button class="time-btn" id="btn-am" onclick="selectTime('AM')">
-                AM<span class="slot-tag" id="tag-am"></span
-                ><span class="window-tag" id="win-am"></span>
-              </button>
-              <button class="time-btn" id="btn-pm" onclick="selectTime('PM')">
-                PM<span class="slot-tag" id="tag-pm"></span
-                ><span class="window-tag" id="win-pm"></span>
-              </button>
+            
+            <div class="field">
+              <label>Issued Date <span class="opt">(optional — leave blank to use current time)</span></label>
+              <input type="datetime-local" id="inp-issued-date" />
             </div>
-          </div>
-          <button
-            class="btn-generate"
-            id="btn-generate"
-            onclick="generateNumber()"
-            data-i18n="btnGenerate"
-          >
-            Generate Control Number
-          </button>
+            
+            <button class="btn-generate" id="btn-generate" onclick="generateNumber()" data-i18n="btnGenerate">
+              Generate Control Number
+            </button>
         </div>
 
         <div class="tickets-section">
@@ -1187,7 +1182,7 @@
             initialized = true;
             now = getServerTime();
             todayStr = toDateStr(now);
-            targetStr = toDateStr(getTargetDate(now));
+            targetStr = computeActiveTargetStr();
             document.getElementById("time-sync-overlay").classList.add("hide");
             setTimeout(() => initializeAfterSync(), 50);
           }
@@ -1332,7 +1327,7 @@
           // Only initialize these once we have accurate server time
           now = getServerTime();
           todayStr = toDateStr(now);
-          targetStr = toDateStr(getTargetDate(now));
+          targetStr = computeActiveTargetStr();
 
           // If target date has changed (e.g. at midnight), refresh listeners
           if (targetStr === activeTargetStr) return;
@@ -1509,6 +1504,11 @@
         }
 
         let now, todayStr, targetStr;
+        let manualDateOverride = localStorage.getItem("pq_manual_date") || null;
+function computeActiveTargetStr() {
+  return manualDateOverride || toDateStr(getTargetDate(now));
+}
+function isUsingDefaultDate() { return !manualDateOverride; }
 
         // FIX 1: getTargetDate skips weekends properly (Friday & Saturday are closed).
         // Thursday (4) → target Friday (+1)
@@ -2785,7 +2785,7 @@
             }
           now = getServerTime();
           todayStr = toDateStr(now);
-          targetStr = toDateStr(getTargetDate(now));
+          targetStr = computeActiveTargetStr();
           const bookStr = window.bookDate();
           if (!isClaimingOpen()) {
             const s = getClaimingStatus();
@@ -3157,137 +3157,6 @@
               btn.textContent = "Generate Control Number";
               return;
             }
-
-
-            // ─── CLAIMANT DATE SELECTION ──────────────────────────────────────────────
-let selectedDate = null;
-let rangeRefs = [], rangeKey = null;
-
-function dateSelectOn() { return scheduleSettings.dateSelectEnabled === true; }
-
-function bookDate(fallback) {
-  if (dateSelectOn() && selectedDate) return selectedDate;
-  return fallback || targetStr;
-}
-
-// Target day → that week's Friday (weekdays only)
-function getWeekDates() {
-  const out = [];
-  let d = getTargetDate(getServerTime());
-  while (out.length < 7) {
-    const dow = toPHT(d).getUTCDay();
-    if (dow >= 1 && dow <= 5) out.push(toDateStr(d));
-    d = new Date(d.getTime() + 86400000);
-  }
-  return out;
-}
-
-function isOpenDay(ds) {
-  const s = calDateSettings[ds] || {};
-  return !s.holiday && !(s.amEnabled === false && s.pmEnabled === false);
-}
-
-function phtParts(ds) {
-  return toPHT(new Date(ds + "T00:00:00+08:00"));
-}
-
-// window around the booked date (used for cooldown / monthly checks)
-function dateWindow(back, forward) {
-  const base = Date.parse(bookDate() + "T00:00:00+08:00");
-  return {
-    start: toDateStr(new Date(base - back * 86400000)),
-    end: toDateStr(new Date(base + forward * 86400000)),
-  };
-}
-
-function updateFormDateLabel() {
-  const p = phtParts(bookDate());
-  document.getElementById("form-date-label").textContent =
-    "For: " + DAYS[p.getUTCDay()] + ", " + MONTHS[p.getUTCMonth()] + " " +
-    p.getUTCDate() + ", " + p.getUTCFullYear();
-}
-
-function renderDatePicker() {
-  const field = document.getElementById("field-appt-date");
-  if (!field) return;
-  if (!dateSelectOn() || editingTicketId) { field.style.display = "none"; return; }
-  field.style.display = "";
-  const week = getWeekDates();
-  if (!selectedDate || !week.includes(selectedDate) || !isOpenDay(selectedDate))
-    selectedDate = week.find(isOpenDay) || null;
-  document.getElementById("appt-date-chips").innerHTML = week.map((ds) => {
-    const p = phtParts(ds);
-    const open = isOpenDay(ds);
-    const dow = DAYS[p.getUTCDay()].slice(0, 3);
-    const label = MONTHS[p.getUTCMonth()].slice(0, 3) + " " + p.getUTCDate();
-    const s = calDateSettings[ds] || {};
-    return '<button type="button" class="date-chip' + (ds === selectedDate ? " active" : "") +
-      (open ? "" : " off") + '"' + (open ? ' onclick="pickDate(\'' + ds + "')\"" : " disabled") + ">" +
-      '<span class="dc-dow">' + dow + '</span><span class="dc-day">' +
-      (open ? label : (s.holiday ? "Holiday" : "Closed")) + "</span></button>";
-  }).join("");
-}
-
-function pickDate(ds) {
-  if (!isOpenDay(ds)) return;
-  selectedDate = ds;
-  renderDatePicker();
-  updateFormDateLabel();
-  applySlotButtonStates(ds, null);
-  updateSlotBanner();
-  renderCard();
-}
-
-function onRangeData() {
-  renderDatePicker();
-  renderCard();
-  updateSlotBanner();
-  renderTickets();
-  const formOpen = document.getElementById("form-card").classList.contains("show");
-  if (formOpen && !editingTicketId) applySlotButtonStates(bookDate(), selectedTime);
-}
-
-function detachRangeListeners() {
-  rangeRefs.forEach((q) => q.off());
-  rangeRefs = [];
-  rangeKey = null;
-}
-
-function attachRangeListeners() {
-  const week = getWeekDates();
-  if (!week.length) return;
-  const key = week[0] + "|" + week[week.length - 1];
-  if (key === rangeKey) return;
-  detachRangeListeners();
-  rangeKey = key;
-  const hook = (path, store) => {
-    const q = db.ref(path).orderByKey().startAt(week[0]).endAt(week[week.length - 1]);
-    q.on("value", (s) => {
-      const v = s.val() || {};
-      week.forEach((d) => { store[d] = v[d] || {}; });
-      onRangeData();
-    });
-    rangeRefs.push(q);
-  };
-  hook("takenNumbers", takenNumbersData);
-  hook("disabledNumbers", disabledNumbers);
-  hook("dateSettings", calDateSettings);
-}
-
-function refreshDateSelect() {
-  if (!serverTimeSynced) return;
-  if (!dateSelectOn()) {
-    detachRangeListeners();
-    selectedDate = null;
-    renderDatePicker();
-    renderCard();
-    updateSlotBanner();
-    return;
-  }
-  attachRangeListeners();
-  renderDatePicker();
-}
-
             // ── Atomically claim a specific number ──────────────────────────────────
             // Skip numbers that are disabled by admin before trying transaction.
             const availableNums =
@@ -3618,7 +3487,7 @@ function refreshDateSelect() {
           const prevTarget = targetStr;
           now = getServerTime();
           todayStr = toDateStr(now);
-          targetStr = toDateStr(getTargetDate(now));
+          targetStr = computeActiveTargetStr();
           
           // If it's a new day, re-initialize date-specific listeners
           if (targetStr !== prevTarget) {
@@ -3830,127 +3699,267 @@ function refreshDateSelect() {
           }
         }
       </script>
-      </script>
 
 <script>
-// ─── CLAIMANT DATE SELECTION (global) ───
-let selectedDate = null;
-let rangeRefs = [], rangeKey = null;
+// ═══ UPDATE BLOCK: pick date from calendar + editable issued date ═══
+// Replaces the old last <script>. Everything here overrides earlier code.
 
-function dateSelectOn() { return true; }
-
-function bookDate(fallback) {
-  if (dateSelectOn() && selectedDate) return selectedDate;
-  return fallback || targetStr;
-}
-
-function getWeekDates() {
-  const first = getTargetDate(getServerTime());
-  const dow = toPHT(first).getUTCDay();
-  const out = [];
-  if (dow < 1 || dow > 5) return out;
-  for (let i = 0; i <= 5 - dow; i++)
-    out.push(toDateStr(new Date(first.getTime() + i * 86400000)));
-  return out;
-}
-
-function isOpenDay(ds) {
-  const s = calDateSettings[ds] || {};
-  return !s.holiday && !(s.amEnabled === false && s.pmEnabled === false);
-}
-
+// ── Booking date = whatever the calendar selected ──
+function bookDate() { return targetStr; }
+function renderDatePicker() {}   // old date chips are gone
+function refreshDateSelect() {}
 function phtParts(ds) { return toPHT(new Date(ds + "T00:00:00+08:00")); }
 
+function ymdParts(s) { const p = s.split("-").map(Number); return { y: p[0], m: p[1] - 1, d: p[2] }; }
+function labelOf(key) {
+  const p = ymdParts(key), dt = new Date(p.y, p.m, p.d);
+  return DAYS[dt.getDay()] + ", " + MONTHS[p.m] + " " + p.d + ", " + p.y;
+}
 function updateFormDateLabel() {
-  const p = phtParts(bookDate());
-  document.getElementById("form-date-label").textContent =
-    "For: " + DAYS[p.getUTCDay()] + ", " + MONTHS[p.getUTCMonth()] + " " +
-    p.getUTCDate() + ", " + p.getUTCFullYear();
+  document.getElementById("form-date-label").textContent = "For: " + labelOf(targetStr);
 }
 
-function renderDatePicker() {
-  const field = document.getElementById("field-appt-date");
-  if (!field) return;
-  if (!dateSelectOn() || editingTicketId) { field.style.display = "none"; return; }
-  field.style.display = "";
-  const week = getWeekDates();
-  if (!selectedDate || !week.includes(selectedDate) || !isOpenDay(selectedDate))
-    selectedDate = week.find(isOpenDay) || null;
-  document.getElementById("appt-date-chips").innerHTML = week.map((ds) => {
-    const p = phtParts(ds), open = isOpenDay(ds);
-    const dow = DAYS[p.getUTCDay()].slice(0, 3);
-    const label = MONTHS[p.getUTCMonth()].slice(0, 3) + " " + p.getUTCDate();
-    const s = calDateSettings[ds] || {};
-    return '<button type="button" class="date-chip' + (ds === selectedDate ? " active" : "") +
-      (open ? "" : " off") + '"' + (open ? ' onclick="pickDate(\'' + ds + "')\"" : " disabled") + ">" +
-      '<span class="dc-dow">' + dow + '</span><span class="dc-day">' +
-      (open ? label : (s.holiday ? "Holiday" : "Closed")) + "</span></button>";
-  }).join("");
+// ── Select / reset date ──
+function switchTargetDate(key) {
+  const old = activeTargetStr;
+  if (old) ["disabledNumbers", "dateSettings", "takenNumbers"].forEach((n) => db.ref(n + "/" + old).off());
+  manualDateOverride = key;
+  if (key) localStorage.setItem("pq_manual_date", key);
+  else localStorage.removeItem("pq_manual_date");
+  const pop = document.getElementById("cal-day-popup");
+  if (pop) pop.remove();
+  selectedTime = null;
+  editingTicketId = null;
+  ["form-card", "slot-banner", "error-card"].forEach((id) =>
+    document.getElementById(id).classList.remove("show"));
+  activeTargetStr = null;          // force listeners to re-attach
+  initializeAfterSync();
+  const tp = ymdParts(targetStr);
+  calViewYear = tp.y; calViewMonth = tp.m;
+  renderCalendar();
+}
+function selectCalendarDate(key) {
+  switchTargetDate(key);
+  const p = ymdParts(key);
+  toast("📅 Selected " + MONTHS[p.m].slice(0, 3) + " " + p.d + ", " + p.y);
+}
+function resetToDefaultDate() {
+  switchTargetDate(null);
+  toast("↺ Back to default date");
 }
 
-function pickDate(ds) {
-  if (!isOpenDay(ds)) return;
-  selectedDate = ds;
-  renderDatePicker();
-  updateFormDateLabel();
-  applySlotButtonStates(ds, null);
-  updateSlotBanner();
-  renderCard();
-}
-
-function onRangeData() {
-  renderDatePicker();
-  renderCard();
-  updateSlotBanner();
-  renderTickets();
-  const formOpen = document.getElementById("form-card").classList.contains("show");
-  if (formOpen && !editingTicketId) applySlotButtonStates(bookDate(), selectedTime);
-}
-
-function detachRangeListeners() {
-  rangeRefs.forEach((q) => q.off());
-  rangeRefs = [];
-  rangeKey = null;
-}
-
-function attachRangeListeners() {
-  const week = getWeekDates();
-  if (!week.length) return;
-  const key = week[0] + "|" + week[week.length - 1];
-  if (key === rangeKey) return;
-  detachRangeListeners();
-  rangeKey = key;
-  const hook = (path, store) => {
-    const q = db.ref(path).orderByKey().startAt(week[0]).endAt(week[week.length - 1]);
-    q.on("value", (s) => {
-      const v = s.val() || {};
-      week.forEach((d) => { store[d] = v[d] || {}; });
-      onRangeData();
-    });
-    rangeRefs.push(q);
-  };
-  hook("takenNumbers", takenNumbersData);
-  hook("disabledNumbers", disabledNumbers);
-  hook("dateSettings", calDateSettings);
-}
-
-function refreshDateSelect() {
-  if (!serverTimeSynced) return;
-  if (!dateSelectOn()) {
-    detachRangeListeners();
-    selectedDate = null;
-    renderDatePicker();
-    renderCard();
-    updateSlotBanner();
-    return;
+// ── Day popup (holiday / half-day) with Select button ──
+function showCalDayPopup(ds, yr, mo, d) {
+  const old = document.getElementById("cal-day-popup");
+  if (old) old.remove();
+  const key = dateKeyOf(yr, mo, d);
+  const amOff = ds.amEnabled === false, pmOff = ds.pmEnabled === false;
+  const row = (icon, name, off, s, e) =>
+    '<div style="display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:8px;border:1px solid ' +
+    (off ? "#fca5a5;background:#fee2e2" : "#86efac;background:#f0fdf4") + ';">' +
+    '<span style="font-size:14px;">' + icon + "</span><div>" +
+    '<div style="font-size:12px;font-weight:800;color:' + (off ? "#991b1b" : "#166534") + ';">' + name + "</div>" +
+    '<div style="font-size:11px;margin-top:1px;color:' + (off ? "#b91c1c" : "#15803d") + ';">' +
+    (off ? "⛔ Closed" : "✅ " + fmt(s) + " – " + fmt(e)) + "</div></div></div>";
+  let body;
+  if (ds.holiday) {
+    body = '<div style="background:#fee2e2;border-radius:10px;padding:12px 14px;margin-bottom:10px;">' +
+      '<div style="font-size:13px;font-weight:800;color:#991b1b;">Holiday</div>' +
+      '<div style="font-size:14px;font-weight:700;color:#7f1d1d;margin-top:2px;">' + ds.holiday + "</div></div>" +
+      '<div style="font-size:12px;color:#6b7280;">No distribution on this day due to the holiday.</div>';
+  } else if (amOff && pmOff) {
+    body = '<div style="background:#fee2e2;border-radius:10px;padding:12px 14px;margin-bottom:10px;font-size:13px;font-weight:800;color:#991b1b;">🚫 All Sessions Closed</div>' +
+      '<div style="font-size:12px;color:#6b7280;">Both AM and PM sessions are disabled for this date.</div>';
+  } else {
+    body = '<div style="background:#fef9c3;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px;font-weight:800;color:#854d0e;">⚠️ Half-Day — Limited Sessions</div>' +
+      '<div style="display:flex;flex-direction:column;gap:8px;">' +
+      row("🌅", "AM Session", amOff, scheduleSettings.amStart, scheduleSettings.amEnd) +
+      row("🌇", "PM Session", pmOff, scheduleSettings.pmStart, scheduleSettings.pmEnd) + "</div>";
   }
-  attachRangeListeners();
-  renderDatePicker();
+  const popup = document.createElement("div");
+  popup.id = "cal-day-popup";
+  popup.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(3px);";
+  popup.innerHTML =
+    '<div style="background:#fff;border-radius:18px;width:100%;max-width:340px;box-shadow:0 20px 50px rgba(0,0,0,0.2);overflow:hidden;">' +
+    '<div style="background:linear-gradient(135deg,#1e3a5f,#2563eb);padding:16px 18px;display:flex;align-items:center;justify-content:space-between;">' +
+    '<div style="color:#fff;font-weight:800;font-size:14px;font-family:Nunito,sans-serif;">📅 ' + labelOf(key) + "</div>" +
+    "<button onclick=\"document.getElementById('cal-day-popup').remove()\" style=\"width:28px;height:28px;border-radius:50%;border:none;background:rgba(255,255,255,0.2);color:#fff;cursor:pointer;\">✕</button></div>" +
+    '<div style="padding:16px 18px 18px;font-family:Nunito,sans-serif;">' + body +
+    "<button onclick=\"selectCalendarDate('" + key + "')\" style=\"margin-top:14px;width:100%;padding:11px;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;\">📌 Select This Date</button>" +
+    "<button onclick=\"document.getElementById('cal-day-popup').remove()\" style=\"margin-top:8px;width:100%;padding:10px;background:#f3f4f6;color:#374151;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;\">Cancel</button>" +
+    "</div></div>";
+  popup.onclick = (e) => { if (e.target === popup) popup.remove(); };
+  document.body.appendChild(popup);
 }
 
-const _dsWait = setInterval(() => {
-  if (serverTimeSynced) { clearInterval(_dsWait); refreshDateSelect(); }
-}, 300);
+// ── Calendar ──
+let calViewYear = null, calViewMonth = null;
+function dateKeyOf(y, m, d) { return y + "-" + pad(m + 1) + "-" + pad(d); }
+function calPrevMonth() {
+  if (calViewMonth === 0) { calViewMonth = 11; calViewYear--; } else calViewMonth--;
+  renderCalendar();
+}
+function calNextMonth() {
+  if (calViewMonth === 11) { calViewMonth = 0; calViewYear++; } else calViewMonth++;
+  renderCalendar();
+}
+
+function renderCalendar() {
+  const baseNow = now || getServerTime();
+  const tKey = targetStr || toDateStr(getTargetDate(baseNow));
+  const tp = ymdParts(tKey);
+  if (calViewYear === null) { calViewYear = tp.y; calViewMonth = tp.m; }
+  const yr = calViewYear, mo = calViewMonth;
+  const todayKey = toDateStr(baseNow), pn = toPHT(baseNow);
+  const $ = (id) => document.getElementById(id);
+
+  $("cal-month-name").textContent = MONTHS[mo];
+  $("cal-year").textContent = yr;
+  $("cal-badge-today-day").textContent = pad(pn.getUTCDate());
+  $("cal-badge-today-name").textContent = DAYS[pn.getUTCDay()];
+  $("cal-badge-day").textContent = pad(tp.d);
+  $("cal-badge-dayname").textContent = DAYS[new Date(tp.y, tp.m, tp.d).getDay()];
+  const subs = document.querySelectorAll(".cal-badge-sublabel");
+  if (subs[1]) subs[1].textContent = isUsingDefaultDate() ? "TOMORROW" : "SELECTED";
+  $("notice-tmr-date").textContent = MONTHS[tp.m].slice(0, 3) + " " + tp.d;
+  $("notice-weekend-warn").textContent = "";
+
+  const firstDow = new Date(yr, mo, 1).getDay();
+  const daysInMo = new Date(yr, mo + 1, 0).getDate();
+  const prevDays = new Date(yr, mo, 0).getDate();
+  const grid = $("cal-days");
+  grid.innerHTML = "";
+  const filler = (n) => {
+    const c = document.createElement("div");
+    c.className = "cal-day other-month";
+    c.textContent = n;
+    grid.appendChild(c);
+  };
+  for (let i = firstDow - 1; i >= 0; i--) filler(prevDays - i);
+
+  for (let d = 1; d <= daysInMo; d++) {
+    const key = dateKeyOf(yr, mo, d);
+    const dow = new Date(yr, mo, d).getDay();
+    const ds = calDateSettings[key] || {};
+    const amOff = ds.amEnabled === false, pmOff = ds.pmEnabled === false;
+    const isHoliday = !!ds.holiday;
+    const closed = isHoliday || (amOff && pmOff);
+    const half = !closed && (amOff || pmOff);
+    const c = document.createElement("div");
+    let cls = "cal-day";
+    if (key === tKey) cls += " tomorrow-cell";
+    else if (key <= todayKey) cls += " past";
+    else {
+      cls += " future-cell";
+      if (dow === 0) cls += " sunday"; else if (dow === 6) cls += " saturday";
+    }
+    c.style.cursor = "pointer";
+    if (closed) {
+      cls += " cal-holiday";
+      c.style.cssText += "background:#fee2e2!important;color:#991b1b!important;border:1.5px solid #fca5a5!important;cursor:pointer;";
+      c.title = isHoliday ? "Holiday: " + ds.holiday : "Closed (all sessions disabled)";
+      c.onclick = () => showCalDayPopup(ds, yr, mo, d);
+    } else if (half) {
+      cls += " cal-halfday";
+      c.style.cssText += "background:#fef9c3!important;color:#854d0e!important;border:1.5px solid #fde047!important;cursor:pointer;";
+      c.title = "Half-day: " + (amOff ? "PM only" : "AM only");
+      c.onclick = () => showCalDayPopup(ds, yr, mo, d);
+    } else {
+      c.title = "Tap to select this date";
+      c.onclick = () => selectCalendarDate(key);
+    }
+    if (key === tKey) c.style.cssText += "outline:2.5px solid #2563eb!important;outline-offset:-2.5px;font-weight:800;";
+    c.className = cls;
+    c.textContent = d;
+    grid.appendChild(c);
+  }
+  const trail = (7 - ((firstDow + daysInMo) % 7)) % 7;
+  for (let d = 1; d <= trail; d++) filler(d);
+  updateCalDateResetUI();
+}
+
+function updateCalDateResetUI() {
+  const legend = document.querySelector(".cal-legend");
+  let reset = document.getElementById("cal-reset-date-btn");
+  if (!reset && legend) {
+    reset = document.createElement("div");
+    reset.id = "cal-reset-date-btn";
+    reset.style.cssText = "margin:0 16px 8px;font-size:11.5px;font-weight:700;color:#2563eb;cursor:pointer;text-decoration:underline;text-align:right;";
+    reset.textContent = "↺ Reset to default date";
+    reset.onclick = resetToDefaultDate;
+    legend.parentNode.insertBefore(reset, legend.nextSibling);
+  }
+  if (reset) reset.style.display = isUsingDefaultDate() ? "none" : "block";
+  const nameEl = document.getElementById("cal-month-name");
+  if (!document.getElementById("cal-month-nav") && nameEl && nameEl.parentNode) {
+    const nav = document.createElement("div");
+    nav.id = "cal-month-nav";
+    nav.style.cssText = "display:flex;gap:6px;margin-top:4px;";
+    nav.innerHTML =
+      '<button onclick="calPrevMonth()" style="border:1px solid #e5e7eb;background:#f9fafb;border-radius:6px;padding:2px 10px;font-size:13px;cursor:pointer;">‹</button>' +
+      '<button onclick="calNextMonth()" style="border:1px solid #e5e7eb;background:#f9fafb;border-radius:6px;padding:2px 10px;font-size:13px;cursor:pointer;">›</button>';
+    nameEl.parentNode.appendChild(nav);
+  }
+}
+
+// ── Card text should follow the selected date ──
+const _origRenderCard = renderCard;
+renderCard = function () {
+  if (!targetStr) return;
+  _origRenderCard();
+  const p = ymdParts(targetStr);
+  const el = document.getElementById("tmr-date-str");
+  if (el) el.textContent = MONTHS[p.m].slice(0, 3) + " " + p.d + ", " + p.y;
+};
+
+// ── Issued date (editable) ──
+function toLocalInput(ms) {
+  const d = new Date(ms);
+  return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) +
+    "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+}
+
+const _origOpenForm = openForm;
+openForm = function () {
+  _origOpenForm();
+  const i = document.getElementById("inp-issued-date");
+  if (i) i.value = "";
+};
+
+const _origEditTicket = editTicket;
+editTicket = function (id) {
+  _origEditTicket(id);
+  const t = myTickets.find((x) => x.id === id);
+  const i = document.getElementById("inp-issued-date");
+  if (t && i) i.value = t.issuedDateOverride ? toLocalInput(t.issuedDateOverride) : "";
+};
+
+const _origGenerate = generateNumber;
+generateNumber = async function () {
+  const inp = document.getElementById("inp-issued-date");
+  const val = inp ? inp.value : "";
+  const editId = editingTicketId;
+  const firstBefore = myTickets.length ? myTickets[0].id : null;
+  await _origGenerate();
+  try {
+    let t = null;
+    if (editId) { if (editingTicketId === null) t = myTickets.find((x) => x.id === editId); }
+    else if (myTickets.length && myTickets[0].id !== firstBefore) t = myTickets[0];
+    if (!t || (!val && !t.issuedDateOverride)) return;
+    const ms = val ? new Date(val).getTime() : null;
+    const upd = { issuedDateOverride: ms };
+    if (ms) upd.issuedAt = new Date(ms).toISOString();
+    else if (typeof t.createdAt === "number") upd.issuedAt = new Date(t.createdAt).toISOString();
+    await db.ref("tickets/" + t.id).update(upd);
+    Object.assign(t, upd);
+    renderTickets();
+  } catch (e) {
+    console.error("Issued date update failed:", e);
+  }
+};
+
+// Redraw now that the new functions are in place
+if (typeof targetStr !== "undefined" && targetStr) renderCard();
 </script>
 
     </body>
